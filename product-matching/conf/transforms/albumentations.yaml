@@ -1,0 +1,55 @@
+train:
+  _target_: albumentations.Compose
+  transforms:
+    # flips
+    - _target_: albumentations.HorizontalFlip
+      p: 0.5
+
+    # # compression
+    # - _target_: albumentations.ImageCompression
+    #   quality_lower: 75
+    #   quality_upper: 100
+    #   p: 0.5
+
+    # crops
+    # - _target_: albumentations.RandomResizedCrop
+    #   height: ${dataloader.image_size}
+    #   width: ${dataloader.image_size}
+    #   scale: [0.8, 1.0]
+    #   interpolation: ${dataloader.interpolation}
+
+    - _target_: albumentations.SmallestMaxSize
+      max_size: ${dataloader.image_size}
+      interpolation: ${dataloader.interpolation}
+
+    - _target_: albumentations.CenterCrop
+      height: ${dataloader.image_size}
+      width: ${dataloader.image_size}
+
+    - _target_: albumentations.Normalize
+      mean: ${dataloader.normalize_stats.mean}
+      std: ${dataloader.normalize_stats.std}
+
+    - _target_: albumentations.pytorch.ToTensorV2
+
+val:
+  _target_: albumentations.Compose
+  transforms:
+    - _target_: albumentations.SmallestMaxSize
+      max_size: ${dataloader.image_size}
+      interpolation: ${dataloader.interpolation}
+
+    - _target_: albumentations.CenterCrop
+      height: ${dataloader.image_size}
+      width: ${dataloader.image_size}
+
+    # - _target_: albumentations.Resize
+    #   height: ${dataloader.image_size}
+    #   width: ${dataloader.image_size}
+    #   interpolation: ${dataloader.interpolation}
+
+    - _target_: albumentations.Normalize
+      mean: ${dataloader.normalize_stats.mean}
+      std: ${dataloader.normalize_stats.std}
+
+    - _target_: albumentations.pytorch.ToTensorV2

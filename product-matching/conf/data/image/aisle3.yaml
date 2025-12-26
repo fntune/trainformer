@@ -1,0 +1,8 @@
+# train_path: /data/a3-data/train.parquet
+# val_path: /data/a3-data/val.parquet
+data_path: /data/a3-data/matched.parquet
+folds: 2
+fold_group: label
+
+image_col: image
+label_col: label

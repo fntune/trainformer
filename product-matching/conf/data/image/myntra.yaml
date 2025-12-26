@@ -1,0 +1,7 @@
+train_data: s3://aisle3-ml-datasets/arcface/image/train/myntra.csv
+test_data: s3://aisle3-ml-datasets/arcface/image/test/aisle3.csv
+
+image_bucket: aisle3-ml-datasets
+
+label_col: label
+image_col: image

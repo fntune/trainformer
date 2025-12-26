@@ -1,0 +1,5 @@
+k: 70
+min_threshold: 0.1
+max_threshold: 1.5
+threshold_step: 0.1
+f_beta: 3

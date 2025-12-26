@@ -1,0 +1,10 @@
+_target_: src.models.components.backbones.TimmBackbone
+model_name: tf_efficientnet_b4_ns
+
+# can be 'avg', 'max', 'avgmax', 'catavgmax'
+pooling: avg
+
+apply_bn: true
+attach_linear_head: true
+
+pretrained: true

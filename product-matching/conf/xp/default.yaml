@@ -1,0 +1,16 @@
+xp_dir: xps
+
+resume: true
+halt_on_existing_xp: true
+
+save_ckpt: true
+save_ckpt_freq: 1
+ckpt_dir: ckpt
+
+resume_optimizer: true
+resume_scheduler: true
+
+allow_uncommitted_changes: false
+ignore_groups:
+  - xp
+  - logging

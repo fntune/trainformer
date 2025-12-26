@@ -1,0 +1,4 @@
+_target_ : pytorch_metric_learning.losses.SubCenterArcFaceLoss
+margin: 28.6
+scale: 32.0
+sub_centers: 2

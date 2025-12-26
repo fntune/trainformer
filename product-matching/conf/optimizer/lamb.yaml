@@ -1,0 +1,4 @@
+_target_: timm.optim.lamb.Lamb
+lr: 5.0e-4
+loss_lr: 0.001
+# weight_decay: 0.01

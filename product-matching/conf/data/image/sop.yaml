@@ -1,0 +1,5 @@
+train_path: /data/sop/train.parquet
+val_path: /data/sop/test.parquet
+
+image_col: image
+label_col: label

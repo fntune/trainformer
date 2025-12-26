@@ -1,0 +1,14 @@
+wandb:
+  log: null
+  log_freq: 100
+  log_graph: false
+
+model_summary_max_depth: 2
+log_every_n_steps: 50
+
+log_img_preds: false
+num_img_preds: 50
+
+rich_style: white on blue
+
+log_retrieval_images: false

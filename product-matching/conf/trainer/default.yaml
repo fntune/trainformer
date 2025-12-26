@@ -1,0 +1,14 @@
+max_epochs: 10
+device: cuda
+
+amp: true
+n_accumulate: 1
+grad_clip: false
+swa: false
+label_smoothing: false
+
+val_every_n_epochs: 2
+val_at_start: true
+
+objective_metric:
+  _target_: torchmetrics.MaxMetric

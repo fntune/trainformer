@@ -1,0 +1,4 @@
+sm_conf/
+sm_config.yaml
+requirements.txt
+*.env

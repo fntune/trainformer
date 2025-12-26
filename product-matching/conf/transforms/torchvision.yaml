@@ -1,0 +1,31 @@
+train:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    # crops
+    - _target_: torchvision.transforms.RandomResizedCrop
+      size: ${dataloader.image_size}
+      scale: (0.8, 1.0)
+      interpolation: ${dataloader.interpolation}
+
+    # flips
+    - _target_: torchvision.transforms.RandomHorizontalFlip
+      p: 0.5
+
+    - _target_: torchvision.transforms.ToTensor
+
+    - _target_: torchvision.transforms.Normalize
+      mean: ${dataloader.normalize_stats.mean}
+      std: ${dataloader.normalize_stats.std}
+
+val:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: torchvision.transforms.Resize
+      size: ${dataloader.image_size}
+      interpolation: ${dataloader.interpolation}
+
+    - _target_: torchvision.transforms.ToTensor
+
+    - _target_: torchvision.transforms.Normalize
+      mean: ${dataloader.normalize_stats.mean}
+      std: ${dataloader.normalize_stats.std}

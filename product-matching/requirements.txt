@@ -1,0 +1,74 @@
+# --------- nn --------- #
+torch
+torchvision
+torchmetrics
+
+# --------- model hubs --------- #
+timm
+transformers
+
+# --------- loss heads --------- #
+pytorch-metric-learning
+
+# --------- indexing --------- #
+faiss-gpu
+
+# --------- image processing --------- #
+pillow
+opencv-python
+scikit-image
+albumentations@git+https://github.com/albumentations-team/albumentations
+
+# --------- text processing -------- #
+textdistance
+
+# --------- data version --------- #
+dvc
+
+# --------- xp management --------- #
+dora-search
+
+# --------- logger --------- #
+wandb
+
+# --------- hparam tuning --------- #
+optuna
+
+# --------- hydra --------- #
+hydra-core==1.1.0
+hydra-colorlog==1.1.0
+hydra-optuna-sweeper==1.1.0
+# hydra-ray-launcher
+
+# --------- vizualizations --------- #
+matplotlib
+seaborn
+
+# --------- ui --------- #
+# streamlit
+
+# --------- aws --------- #
+s3fs
+sagemaker
+
+# --------- sql --------- #
+pymysql
+
+# --------- ml essentials --------- #
+numpy
+pandas>=1.1.5
+scikit-learn
+networkx
+
+# --------- others --------- #
+tqdm
+pyyaml
+loguru
+python-dotenv
+rich
+pytest
+sh
+
+# --------- jupyter  --------- #
+ipyplot@git+https://github.com/karolzak/ipyplot
+ipython-sql

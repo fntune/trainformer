@@ -1,0 +1,8 @@
+lr_scheduler_interval: step
+
+lr_scheduler:
+  _target_: src.core.lr_schedulers.WarmupSchedulers
+  name: cosine_schedule_with_warmup
+  warmup_factor: 0.0
+  # pass total_steps -1 to calculate num_training_steps at instantiation
+  total_steps: -1

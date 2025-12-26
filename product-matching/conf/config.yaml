@@ -1,0 +1,25 @@
+project: a3-datafeed
+
+defaults:
+  - hydra: default
+  - logging: full
+
+  - data: image/aisle3
+  - dataloader: default
+  - transforms: albumentations
+  - eval: default
+  - model: timm_backbone
+  - loss: subcenter_arcface
+  - trainer: default
+  - xp: default
+  - optimizer: adam
+  - scheduler: cosine
+
+  - override hydra/hydra_logging: colorlog
+  - override hydra/job_logging: colorlog
+
+  # last element of the defaults list will be _self_
+  # just a migration thing hydra requires for now, the latest version made some breaking changes!
+  - _self_
+
+seed_everything: false
