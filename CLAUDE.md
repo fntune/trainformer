@@ -4,79 +4,64 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-This is a multi-project monorepo for deep learning training pipelines focused on metric learning and product matching. It contains two main projects:
+This is a monorepo containing:
 
-- **SSL/** - Self-supervised learning pipeline using PyTorch Lightning
-- **product-matching/** - Product matching with ArcFace/metric learning (custom training loop)
-
-Both projects use Hydra for configuration management and support W&B logging.
+1. **trainformer** (planned) - Python-first training library for deep learning. See `PLAN.md` for full design spec.
+2. **product-matching/** - Production metric learning pipeline with ArcFace (Hydra + custom training loop)
+3. **SSL/** - Self-supervised learning pipeline (PyTorch Lightning, git submodule)
 
 ## Commands
 
-### SSL Project (PyTorch Lightning)
-```bash
-cd SSL
-pip install -r requirements.txt
-python run.py                                    # train with default config
-python run.py --config-name experiment.yaml      # use different config
-python run.py max_epochs=20 data.batch_size=64   # override params
-python run.py -m data.batch_size=16,32,64        # multirun sweep
-```
-
-### Product Matching Project
+### Product Matching
 ```bash
 cd product-matching
 pip install -r requirements.txt
-python run.py                                              # train with default config
+python run.py                                    # train with default config
 python run.py dataloader=local model.backbone.model_name=efficientnet_b3
+python run.py -m data.batch_size=16,32,64        # multirun sweep
 ```
 
-### Common Hydra Patterns
-- Override params: `key=value` (no `--` prefix)
-- Add new params: `+key=value`
-- Switch config groups: `dataloader=colab` or `model=arcface`
-- Multirun sweep: `-m key=val1,val2,val3`
+### Hydra Patterns
+- Override: `key=value` (no `--` prefix)
+- Add new param: `+key=value`
+- Switch config group: `dataloader=colab` or `model=arcface`
+- Multirun: `-m key=val1,val2,val3`
 
 ## Architecture
 
-### SSL Project Structure
+### Product Matching (`product-matching/`)
 ```
-SSL/
-├── run.py                    # Entry point - instantiates DataModule, LightningModule, Trainer
-├── conf/                     # Hydra configs (data, module, trainer, callbacks, etc.)
-└── src/
-    ├── modules/              # LightningModule implementations (base.py, dino.py, cgd.py, dolg.py)
-    ├── datamodule/           # LightningDataModule with TensorDict support
-    ├── components/           # Reusable nn.Modules (backbones, loss_heads, pooler_heads)
-    ├── callbacks/            # Lightning callbacks (checkpoint, metrics, knn_online)
-    └── core/                 # LR schedulers, loggers, utilities
-```
-
-### Product Matching Project Structure
-```
-product-matching/
-├── run.py                    # Entry point - data prep, fold splitting, calls train()
-├── conf/                     # Hydra configs
-└── src/
-    ├── train.py              # Custom training loop with AMP, FAISS evaluation
-    ├── models/               # Model definitions (dolg.py) + components/
-    ├── datamodules/          # ImageDataset
-    └── testing.py            # Metric computation (sweep_matching, compute_scores)
+run.py              → Entry point, fold splitting, calls train()
+src/train.py        → Custom training loop with AMP, FAISS eval
+src/models/dolg.py  → Model definition
+src/models/components/
+  ├── backbones.py    → TimmBackbone wrapper (timm models)
+  ├── loss_heads.py   → ArcFace, SubcenterArcFace
+  └── pooler_heads.py → GeM pooling
+src/testing.py      → sweep_matching, compute_scores (F1 optimization)
+conf/               → Hydra configs (model/, loss/, transforms/, etc.)
 ```
 
-### Key Design Patterns
+### Key Patterns
 
-1. **Hydra Instantiation**: Models, transforms, losses are instantiated via `hydra.utils.instantiate()` from config `_target_` paths
+1. **Hydra Instantiation**: Models/transforms/losses instantiated via `hydra.utils.instantiate()` from config `_target_` paths
 
-2. **Backbone Abstraction**: Both projects use `TimmBackbone` wrapper around timm models with `remove_fc=true`
+2. **TimmBackbone**: Wrapper around timm models with `remove_fc=true`, used across all vision tasks
 
-3. **Metric Learning Losses**: ArcFace and SubcenterArcFace in `components/loss_heads.py`, configured via `loss/` configs
+3. **Metric Learning**: ArcFace loss with learnable weights in `loss_heads.py`, configured via `conf/loss/`
 
 4. **Evaluation**: FAISS-based nearest neighbor search with threshold sweeping for F1 optimization
 
+### Trainformer Design (see PLAN.md)
+
+The planned trainformer library follows these patterns:
+- **Task Protocol**: `train_step()`, `eval_step()`, `configure(DatasetInfo)`, `parameters()`
+- **Trainer**: Universal loop with phased initialization, callbacks, multi-backend logging
+- **PipelineContext**: Config source tracking (USER/DATA/DERIVED), lifecycle management (STEP/EPOCH/RUN)
+
 ## Environment Variables
 ```
-WANDB_API_KEY    # or run `wandb login` once
+WANDB_API_KEY         # or run `wandb login`
 AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY
 ```
