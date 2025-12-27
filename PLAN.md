@@ -1609,102 +1609,6 @@ class WandbLogger(BaseLogger):
             self._run.finish()
 
 
-@dataclass
-class ConsoleLogger(BaseLogger):
-    """Simple console logger with progress bar."""
-
-    log_every: int = 100
-
-    def init(self, config: dict[str, Any]) -> None:
-        logging.info(f"Training config: {config}")
-
-    def log(self, metrics: dict[str, float], step: int) -> None:
-        parts = [f"{k}={v:.4f}" for k, v in metrics.items()]
-        logging.info(f"[step {step}] {' '.join(parts)}")
-
-    def finish(self) -> None:
-        logging.info("Training complete")
-
-
-@dataclass
-class TensorBoardLogger(BaseLogger):
-    """TensorBoard logger."""
-
-    log_dir: str = "runs"
-
-    _writer: Any = field(init=False, default=None)
-
-    def init(self, config: dict[str, Any]) -> None:
-        from torch.utils.tensorboard import SummaryWriter
-        self._writer = SummaryWriter(log_dir=self.log_dir)
-        # Log config as text
-        self._writer.add_text("config", str(config))
-
-    def log(self, metrics: dict[str, float], step: int) -> None:
-        if self._writer:
-            for k, v in metrics.items():
-                self._writer.add_scalar(k, v, step)
-
-    def finish(self) -> None:
-        if self._writer:
-            self._writer.close()
-
-
-@dataclass
-class MLflowLogger(BaseLogger):
-    """MLflow logger."""
-
-    experiment_name: str = "trainformer"
-    run_name: str | None = None
-    tracking_uri: str | None = None
-
-    def init(self, config: dict[str, Any]) -> None:
-        import mlflow
-        if self.tracking_uri:
-            mlflow.set_tracking_uri(self.tracking_uri)
-        mlflow.set_experiment(self.experiment_name)
-        mlflow.start_run(run_name=self.run_name)
-        mlflow.log_params(config)
-
-    def log(self, metrics: dict[str, float], step: int) -> None:
-        import mlflow
-        mlflow.log_metrics(metrics, step=step)
-
-    def finish(self) -> None:
-        import mlflow
-        mlflow.end_run()
-
-
-@dataclass
-class MultiLogger(BaseLogger):
-    """Composable logger that wraps multiple backends."""
-
-    loggers: list[BaseLogger] = field(default_factory=list)
-
-    def init(self, config: dict[str, Any]) -> None:
-        for logger in self.loggers:
-            logger.init(config)
-
-    def log(self, metrics: dict[str, float], step: int) -> None:
-        for logger in self.loggers:
-            logger.log(metrics, step)
-
-    def finish(self) -> None:
-        for logger in self.loggers:
-            logger.finish()
-
-
-class NoOpLogger(BaseLogger):
-    """No-op logger for testing or silent runs."""
-
-    def init(self, config: dict[str, Any]) -> None:
-        pass
-
-    def log(self, metrics: dict[str, float], step: int) -> None:
-        pass
-
-    def finish(self) -> None:
-        pass
 ```
 
 ### 9. Sampler Classes
@@ -2753,346 +2657,73 @@ def byol_loss(p: Tensor, z: Tensor) -> Tensor:
 
 ```python
 # tasks/nlp/causal_lm.py
-from dataclasses import dataclass, field
-from typing import Any
-import torch.nn as nn
-from torch import Tensor
-
 @dataclass
 class CausalLM:
     """Causal language model (GPT-style) for pretraining or fine-tuning."""
-
     model_name: str = "gpt2"
     adapter: "Adapter | None" = None
     max_length: int = 2048
-
-    model: nn.Module = field(init=False)
-    tokenizer: Any = field(init=False)
-
-    def __post_init__(self):
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-
-        # Load model
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        self.model = AutoModelForCausalLM.from_pretrained(self.model_name)
-
-        # Apply adapter if specified
-        if self.adapter:
-            self.model = self.adapter.apply(self.model)
-
-    def train_step(self, batch: dict) -> Tensor:
-        outputs = self.model(**batch)
-        return outputs.loss
-
-    def eval_step(self, batch: dict) -> dict[str, Tensor]:
-        outputs = self.model(**batch)
-        perplexity = torch.exp(outputs.loss)
-        return {"loss": outputs.loss, "perplexity": perplexity}
-
-    def collate_fn(self, examples: list[str]) -> dict:
-        """Tokenize and collate text examples."""
-        return self.tokenizer(
-            examples,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors="pt",
-        )
-
-    def load_data(self, path: str):
-        """Load text data from file or HF dataset."""
-        if path.endswith(".json") or path.endswith(".jsonl"):
-            return JSONLDataset(path, key="text")
-        elif path.endswith(".txt"):
-            return TextFileDataset(path)
-        else:
-            # Assume HuggingFace dataset
-            from datasets import load_dataset
-            return load_dataset(path, split="train")
 ```
 
 ### NLP: Seq2Seq
 
 ```python
 # tasks/nlp/seq2seq.py
-from dataclasses import dataclass, field
-from typing import Any
-import torch.nn as nn
-from torch import Tensor
-
 @dataclass
 class Seq2Seq:
     """Sequence-to-sequence model (T5, BART) for translation, summarization, etc."""
-
     model_name: str = "t5-small"
     adapter: "Adapter | None" = None
     max_source_length: int = 512
     max_target_length: int = 128
-
-    model: nn.Module = field(init=False)
-    tokenizer: Any = field(init=False)
-
-    def __post_init__(self):
-        from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
-
-        if self.adapter:
-            self.model = self.adapter.apply(self.model)
-
-    def train_step(self, batch: dict) -> Tensor:
-        outputs = self.model(**batch)
-        return outputs.loss
-
-    def eval_step(self, batch: dict) -> dict[str, Tensor]:
-        outputs = self.model(**batch)
-        return {"loss": outputs.loss}
-
-    def collate_fn(self, examples: list[dict]) -> dict:
-        """Collate source-target pairs."""
-        sources = [ex["source"] for ex in examples]
-        targets = [ex["target"] for ex in examples]
-
-        model_inputs = self.tokenizer(
-            sources,
-            padding=True,
-            truncation=True,
-            max_length=self.max_source_length,
-            return_tensors="pt",
-        )
-
-        labels = self.tokenizer(
-            targets,
-            padding=True,
-            truncation=True,
-            max_length=self.max_target_length,
-            return_tensors="pt",
-        ).input_ids
-
-        # Replace padding with -100 for loss computation
-        labels[labels == self.tokenizer.pad_token_id] = -100
-        model_inputs["labels"] = labels
-
-        return model_inputs
 ```
 
 ### Multimodal: Vision-Language Model
 
 ```python
 # tasks/multimodal/vlm.py
-from dataclasses import dataclass, field
-from typing import Any
-import torch.nn as nn
-from torch import Tensor
-
 @dataclass
 class VLM:
     """Vision-Language Model (LLaVA, Qwen-VL, etc.)."""
-
     model_name: str = "llava-hf/llava-1.5-7b-hf"
     adapter: "Adapter | None" = None
     max_length: int = 2048
 
-    model: nn.Module = field(init=False)
-    processor: Any = field(init=False)
-
-    def __post_init__(self):
-        from transformers import AutoProcessor, LlavaForConditionalGeneration
-
-        self.processor = AutoProcessor.from_pretrained(self.model_name)
-        self.model = LlavaForConditionalGeneration.from_pretrained(self.model_name)
-
-        if self.adapter:
-            self.model = self.adapter.apply(self.model)
-
-    def train_step(self, batch: dict) -> Tensor:
-        outputs = self.model(**batch)
-        return outputs.loss
-
-    def eval_step(self, batch: dict) -> dict[str, Tensor]:
-        outputs = self.model(**batch)
-        return {"loss": outputs.loss}
-
-    def collate_fn(self, examples: list[dict]) -> dict:
-        """Collate image-text pairs."""
-        images = [ex["image"] for ex in examples]
-        texts = [ex["text"] for ex in examples]
-
-        return self.processor(
-            images=images,
-            text=texts,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors="pt",
-        )
-
-    def load_data(self, path: str):
-        """Load VLM dataset (image-text pairs with conversations)."""
-        return VLMDataset(path)
-
-
 @dataclass
 class CLIP:
     """CLIP for image-text contrastive learning."""
-
     model_name: str = "openai/clip-vit-base-patch32"
     adapter: "Adapter | None" = None
-
-    model: nn.Module = field(init=False)
-    processor: Any = field(init=False)
-
-    def __post_init__(self):
-        from transformers import CLIPModel, CLIPProcessor
-
-        self.processor = CLIPProcessor.from_pretrained(self.model_name)
-        self.model = CLIPModel.from_pretrained(self.model_name)
-
-        if self.adapter:
-            self.model = self.adapter.apply(self.model)
-
-    def train_step(self, batch: dict) -> Tensor:
-        outputs = self.model(**batch, return_loss=True)
-        return outputs.loss
-
-    def eval_step(self, batch: dict) -> dict[str, Tensor]:
-        outputs = self.model(**batch, return_loss=True)
-        return {"loss": outputs.loss}
-
-    def collate_fn(self, examples: list[dict]) -> dict:
-        images = [ex["image"] for ex in examples]
-        texts = [ex["text"] for ex in examples]
-
-        return self.processor(
-            images=images,
-            text=texts,
-            padding=True,
-            return_tensors="pt",
-        )
 ```
 
 ---
 
 ## Adapters
 
-### LoRA
-
 ```python
 # adapters/lora.py
-from dataclasses import dataclass
-import torch.nn as nn
-
 @dataclass
 class LoRA:
-    """Low-Rank Adaptation for efficient fine-tuning."""
-
+    """Low-Rank Adaptation for efficient fine-tuning (via PEFT)."""
     r: int = 8
     alpha: int = 16
     dropout: float = 0.1
     target_modules: list[str] | None = None
 
-    def apply(self, model: nn.Module) -> nn.Module:
-        from peft import get_peft_model, LoraConfig, TaskType
-
-        # Infer task type from model
-        task_type = self._infer_task_type(model)
-
-        config = LoraConfig(
-            r=self.r,
-            lora_alpha=self.alpha,
-            lora_dropout=self.dropout,
-            target_modules=self.target_modules or "all-linear",
-            task_type=task_type,
-        )
-
-        return get_peft_model(model, config)
-
-    def _infer_task_type(self, model: nn.Module) -> str:
-        from peft import TaskType
-
-        class_name = model.__class__.__name__.lower()
-        if "causal" in class_name or "gpt" in class_name:
-            return TaskType.CAUSAL_LM
-        elif "seq2seq" in class_name or "t5" in class_name or "bart" in class_name:
-            return TaskType.SEQ_2_SEQ_LM
-        elif "classification" in class_name:
-            return TaskType.SEQ_CLS
-        else:
-            return TaskType.CAUSAL_LM  # Default
-```
-
-### QLoRA
-
-```python
 # adapters/qlora.py
-from dataclasses import dataclass
-import torch.nn as nn
-
 @dataclass
 class QLoRA:
-    """4-bit Quantized LoRA for memory-efficient fine-tuning."""
-
+    """4-bit Quantized LoRA for memory-efficient fine-tuning (via PEFT)."""
     r: int = 8
     alpha: int = 16
     dropout: float = 0.1
     target_modules: list[str] | None = None
 
-    def apply(self, model: nn.Module) -> nn.Module:
-        from peft import get_peft_model, LoraConfig, prepare_model_for_kbit_training
-        from transformers import BitsAndBytesConfig
-
-        # Prepare for k-bit training
-        model = prepare_model_for_kbit_training(model)
-
-        config = LoraConfig(
-            r=self.r,
-            lora_alpha=self.alpha,
-            lora_dropout=self.dropout,
-            target_modules=self.target_modules or "all-linear",
-        )
-
-        return get_peft_model(model, config)
-
-    @staticmethod
-    def quantization_config():
-        """Return BitsAndBytesConfig for model loading."""
-        from transformers import BitsAndBytesConfig
-        import torch
-
-        return BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_use_double_quant=True,
-        )
-```
-
-### Prefix Tuning
-
-```python
 # adapters/prefix.py
-from dataclasses import dataclass
-import torch.nn as nn
-
 @dataclass
 class PrefixTuning:
-    """Prefix tuning for efficient fine-tuning."""
-
+    """Prefix tuning for efficient fine-tuning (via PEFT)."""
     num_virtual_tokens: int = 20
-
-    def apply(self, model: nn.Module) -> nn.Module:
-        from peft import get_peft_model, PrefixTuningConfig
-
-        config = PrefixTuningConfig(
-            num_virtual_tokens=self.num_virtual_tokens,
-            task_type="CAUSAL_LM",
-        )
-
-        return get_peft_model(model, config)
 ```
 
 ---
@@ -3291,40 +2922,7 @@ print(f"Best config: {results[0]}")
 
 ## Usage Examples
 
-### Fine-tune LLM with LoRA
-
-```python
-from trainformer import Trainer
-from trainformer.tasks import CausalLM
-from trainformer.adapters import LoRA
-
-Trainer(
-    task=CausalLM("meta-llama/Llama-2-7b", adapter=LoRA(r=8)),
-    data="data/alpaca.json",
-    epochs=3,
-    batch_size=4,
-    lr=2e-4,
-    accumulation_steps=8,
-    precision="bf16",
-).fit()
-```
-
-### Full LLM Fine-tuning
-
-```python
-from trainformer import Trainer
-from trainformer.tasks import CausalLM
-
-Trainer(
-    task=CausalLM("gpt2"),
-    data="data/wikitext",
-    epochs=10,
-    batch_size=32,
-    lr=5e-5,
-).fit()
-```
-
-### Train ArcFace Embeddings
+Train ArcFace embeddings with metric learning:
 
 ```python
 from trainformer import Trainer
@@ -3340,7 +2938,7 @@ Trainer(
 ).fit()
 ```
 
-### SSL Pretraining with DINO
+Pretrain ViT with DINO self-supervised learning:
 
 ```python
 from trainformer import Trainer
@@ -3356,50 +2954,12 @@ Trainer(
 ).fit()
 ```
 
-### Fine-tune Vision-Language Model
+Resume training from checkpoint:
 
 ```python
-from trainformer import Trainer
-from trainformer.tasks import VLM
-from trainformer.adapters import QLoRA
-
-Trainer(
-    task=VLM("llava-hf/llava-1.5-7b", adapter=QLoRA(r=8)),
-    data="data/llava_instruct.json",
-    epochs=3,
-    batch_size=4,
-    lr=2e-4,
-).fit()
-```
-
-### Image Classification
-
-```python
-from trainformer import Trainer
-from trainformer.tasks import ImageClassification
-
-Trainer(
-    task=ImageClassification("vit_base_patch16_224", num_classes=1000),
-    data="data/imagenet/train",
-    val_data="data/imagenet/val",
-    epochs=90,
-    batch_size=256,
-    lr=1e-3,
-).fit()
-```
-
-### Resume Training
-
-```python
-trainer = Trainer(
-    task=CausalLM("gpt2"),
-    data="data/text",
-    epochs=10,
-)
-
-# Resume from checkpoint
+trainer = Trainer(task=CausalLM("gpt2"), data="data/text", epochs=10)
 trainer.load("checkpoints/epoch_5.pt")
-trainer.fit()  # Continues from epoch 5
+trainer.fit()
 ```
 
 ---
@@ -3478,276 +3038,15 @@ trainformer train --task=SSL.dino --model=vit_small --data=data/imagenet --epoch
 
 ## Testing Strategy
 
-### Test Structure
-
-```
-tests/
-├── conftest.py               # Shared fixtures
-├── test_trainer.py           # Trainer tests
-├── test_tasks.py             # Task implementations
-├── test_callbacks.py         # Callback tests
-├── test_context.py           # PipelineConfig/Context tests
-├── test_sweeps.py            # Sweep tests
-├── integration/
-│   ├── test_vision.py        # Vision pipeline integration
-│   ├── test_nlp.py           # NLP pipeline integration
-│   └── test_distributed.py   # Multi-GPU tests
-└── fixtures/
-    ├── tiny_dataset.py       # Small synthetic datasets
-    └── mock_models.py        # Lightweight model mocks
-```
-
-### Fixtures
-
-```python
-# tests/conftest.py
-import pytest
-import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, TensorDataset
-
-@pytest.fixture
-def tiny_image_dataset() -> Dataset:
-    """Tiny image dataset for fast tests."""
-    x = torch.randn(100, 3, 32, 32)
-    y = torch.randint(0, 10, (100,))
-    return TensorDataset(x, y)
-
-@pytest.fixture
-def tiny_text_dataset() -> Dataset:
-    """Tiny text dataset."""
-    texts = ["Hello world"] * 100
-    return texts
-
-@pytest.fixture
-def mock_backbone() -> nn.Module:
-    """Lightweight mock backbone."""
-    return nn.Sequential(
-        nn.Conv2d(3, 16, 3, padding=1),
-        nn.AdaptiveAvgPool2d(1),
-        nn.Flatten(),
-        nn.Linear(16, 64),
-    )
-
-@pytest.fixture
-def mock_task(mock_backbone):
-    """Mock task for Trainer tests."""
-    class MockTask:
-        def __init__(self, backbone):
-            self.model = backbone
-            self._loss = nn.CrossEntropyLoss()
-
-        def train_step(self, batch):
-            x, y = batch
-            logits = self.model(x)
-            return self._loss(logits, y)
-
-        def eval_step(self, batch):
-            x, y = batch
-            logits = self.model(x)
-            return {"loss": self._loss(logits, y)}
-
-        def parameters(self):
-            return self.model.parameters()
-
-    return MockTask(mock_backbone)
-
-
-@pytest.fixture
-def trainer_kwargs(tiny_image_dataset, mock_task):
-    """Common trainer kwargs for testing."""
-    return {
-        "task": mock_task,
-        "data": tiny_image_dataset,
-        "epochs": 2,
-        "batch_size": 16,
-        "log": "none",
-    }
-```
-
-### Example Tests
-
-```python
-# tests/test_trainer.py
-import pytest
-from trainformer import Trainer
-
-def test_trainer_fit(trainer_kwargs):
-    """Test basic training loop."""
-    trainer = Trainer(**trainer_kwargs)
-    trainer.fit()
-
-    assert trainer._epoch == trainer_kwargs["epochs"] - 1
-    assert trainer._step > 0
-
-
-def test_trainer_val_split(trainer_kwargs):
-    """Test automatic train/val split."""
-    trainer = Trainer(**trainer_kwargs, val_split=0.2)
-    trainer.fit()
-
-    assert trainer._val_loader is not None
-
-
-def test_trainer_callbacks(trainer_kwargs):
-    """Test callback integration."""
-    from trainformer.callbacks import EarlyStopping
-
-    early_stop = EarlyStopping(monitor="val/loss", patience=1)
-    trainer = Trainer(**trainer_kwargs, callbacks=[early_stop], val_split=0.2)
-    trainer.fit()
-
-
-def test_trainer_checkpoint(trainer_kwargs, tmp_path):
-    """Test save/load checkpoint."""
-    trainer = Trainer(**trainer_kwargs, save_dir=str(tmp_path))
-    trainer.fit()
-    trainer.save(str(tmp_path / "checkpoint.pt"))
-
-    # Load into new trainer
-    trainer2 = Trainer(**trainer_kwargs)
-    trainer2.load(str(tmp_path / "checkpoint.pt"))
-
-    assert trainer2._epoch == trainer._epoch
-    assert trainer2._step == trainer._step
-
-
-def test_trainer_predict(trainer_kwargs, tiny_image_dataset):
-    """Test prediction API."""
-    trainer = Trainer(**trainer_kwargs)
-    trainer.fit()
-
-    outputs = trainer.predict(tiny_image_dataset, batch_size=16)
-    assert len(outputs) > 0
-
-
-def test_trainer_export(trainer_kwargs, tmp_path):
-    """Test model export."""
-    trainer = Trainer(**trainer_kwargs)
-    trainer.fit()
-
-    path = trainer.export(str(tmp_path / "model"), format="pytorch")
-    assert Path(path).exists()
-
-
-# tests/test_context.py
-def test_pipeline_config_sources():
-    """Test config source tracking."""
-    from trainformer.context import PipelineConfig, ConfigSource
-
-    config = PipelineConfig()
-    config.set_user("lr", 1e-4, filterable=True)
-    config.set_from_data("num_classes", 10, filterable=True)
-    config.set_derived("total_steps", 1000, ("num_samples", "batch_size"))
-
-    assert config.get("lr") == 1e-4
-    assert config.get("num_classes") == 10
-    assert "lr" in config.get_filter_dimensions()
-    assert "total_steps" in config.to_wandb_config()
-
-
-def test_pipeline_context_lifecycle():
-    """Test context lifecycle management."""
-    from trainformer.context import PipelineContext, Lifecycle
-
-    ctx = PipelineContext()
-    ctx.set("step_value", 1, Lifecycle.STEP)
-    ctx.set("epoch_value", 2, Lifecycle.EPOCH)
-    ctx.set("run_value", 3, Lifecycle.RUN)
-
-    ctx.on_step_end()
-    assert ctx.get("step_value") is None
-    assert ctx.get("epoch_value") == 2
-
-    ctx.on_epoch_end()
-    assert ctx.get("epoch_value") is None
-    assert ctx.get("run_value") == 3
-
-
-# tests/test_callbacks.py
-def test_early_stopping():
-    """Test early stopping callback."""
-    from trainformer.callbacks import EarlyStopping
-
-    es = EarlyStopping(monitor="val/loss", patience=2, mode="min")
-
-    # Mock trainer
-    class MockTrainer:
-        _should_stop = False
-
-    trainer = MockTrainer()
-
-    # Improving
-    es.on_validation_end(trainer, {"val/loss": 1.0})
-    assert not trainer._should_stop
-
-    # Not improving
-    es.on_validation_end(trainer, {"val/loss": 1.1})
-    assert not trainer._should_stop  # patience=2
-
-    es.on_validation_end(trainer, {"val/loss": 1.2})
-    assert trainer._should_stop  # patience exceeded
-
-
-def test_model_checkpoint(tmp_path):
-    """Test model checkpoint callback."""
-    from trainformer.callbacks import ModelCheckpoint
-
-    ckpt = ModelCheckpoint(
-        monitor="val/loss",
-        mode="min",
-        save_top_k=2,
-        save_dir=str(tmp_path),
-    )
-
-    # Would need mock trainer with save() method
-    # ...
-```
-
-### CI Configuration
-
-```yaml
-# .github/workflows/test.yml
-name: Tests
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: |
-          pip install -e ".[dev]"
-
-      - name: Run linting
-        run: |
-          ruff check .
-
-      - name: Run tests
-        run: |
-          pytest tests/ -v --cov=trainformer --cov-report=xml
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage.xml
-```
+Test structure (see `tests/` directory):
+- `conftest.py` - Shared fixtures (tiny datasets, mock models)
+- `test_trainer.py` - Trainer core functionality
+- `test_tasks.py` - Task implementations
+- `test_callbacks.py` - Callback integration
+- `test_context.py` - Config/context lifecycle
+- `integration/` - Vision, NLP, distributed pipelines
+
+Key test areas: basic fit loop, train/val splits, checkpointing, prediction API, callbacks, and distributed training.
 
 ---
 
