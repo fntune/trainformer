@@ -2,10 +2,12 @@
 import logging
 import os
 import random
+from contextlib import contextmanager
+from typing import Any, Iterator
 
 import numpy as np
 import torch
-from torch import nn
+from torch import Tensor, nn
 
 logger = logging.getLogger(__name__)
 
@@ -102,3 +104,52 @@ def get_device() -> torch.device:
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
+
+
+def move_to_device(batch: Any, device: torch.device | str) -> Any:
+    """Recursively move batch to device.
+
+    Args:
+        batch: Tensor, dict, list, or tuple to move
+        device: Target device
+
+    Returns:
+        Batch with all tensors moved to device
+    """
+    if isinstance(batch, Tensor):
+        return batch.to(device)
+    elif isinstance(batch, dict):
+        return {k: move_to_device(v, device) for k, v in batch.items()}
+    elif isinstance(batch, (list, tuple)):
+        return type(batch)(move_to_device(x, device) for x in batch)
+    return batch
+
+
+@contextmanager
+def profile_memory_context(label: str = "Operation") -> Iterator[None]:
+    """Context manager to track peak GPU memory usage.
+
+    Args:
+        label: Label for logging the memory stats
+
+    Yields:
+        None
+
+    Example:
+        >>> with profile_memory_context("Forward pass"):
+        ...     output = model(input)
+        # Logs: "Forward pass - Peak memory: 1.23 GB"
+    """
+    if not torch.cuda.is_available():
+        yield
+        return
+
+    torch.cuda.reset_peak_memory_stats()
+    torch.cuda.synchronize()
+
+    try:
+        yield
+    finally:
+        torch.cuda.synchronize()
+        peak_memory = torch.cuda.max_memory_allocated() / 1e9
+        logger.info(f"{label} - Peak memory: {peak_memory:.2f} GB")

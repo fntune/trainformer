@@ -36,7 +36,10 @@ class Trainer:
         weight_decay: Weight decay for optimizer
         grad_clip: Gradient clipping value (None to disable)
         compile: Whether to use torch.compile
-        amp: Use automatic mixed precision
+        amp: Use automatic mixed precision (deprecated, use precision)
+        precision: Mixed precision mode ('no', 'fp16', 'bf16')
+        gradient_checkpointing: Enable gradient checkpointing for memory efficiency
+        accumulation_steps: Gradient accumulation steps
         callbacks: List of callbacks
         logger: Logger instance(s)
         name: Experiment name
@@ -61,7 +64,10 @@ class Trainer:
 
     # Performance
     compile: bool = False
-    amp: bool = True
+    amp: bool = True  # Deprecated, use precision instead
+    precision: str = "fp16"  # 'no', 'fp16', 'bf16'
+    gradient_checkpointing: bool = False
+    accumulation_steps: int = 1
 
     # Extensibility
     callbacks: list[Callback] = field(default_factory=list)
@@ -78,10 +84,11 @@ class Trainer:
     # Internal state
     _optimizer: torch.optim.Optimizer | None = field(default=None, init=False)
     _scheduler: Any = field(default=None, init=False)
-    _scaler: torch.cuda.amp.GradScaler | None = field(default=None, init=False)
+    _scaler: torch.amp.GradScaler | None = field(default=None, init=False)
     _train_loader: DataLoader | None = field(default=None, init=False)
     _val_loader: DataLoader | None = field(default=None, init=False)
     _logger: Logger | None = field(default=None, init=False)
+    _step: int = field(default=0, init=False)  # Track global step for accumulation
 
     config: PipelineConfig = field(default_factory=PipelineConfig, init=False)
     ctx: PipelineContext = field(default_factory=PipelineContext, init=False)
@@ -114,6 +121,9 @@ class Trainer:
         self.config.set("grad_clip", self.grad_clip, ConfigSource.USER)
         self.config.set("compile", self.compile, ConfigSource.USER)
         self.config.set("amp", self.amp, ConfigSource.USER)
+        self.config.set("precision", self.precision, ConfigSource.USER)
+        self.config.set("gradient_checkpointing", self.gradient_checkpointing, ConfigSource.USER)
+        self.config.set("accumulation_steps", self.accumulation_steps, ConfigSource.USER)
         self.config.set("seed", self.seed, ConfigSource.USER)
         self.config.set("device", self.device, ConfigSource.DERIVED)
 
@@ -196,8 +206,30 @@ class Trainer:
 
     def _setup_amp(self) -> None:
         """Setup automatic mixed precision."""
-        if self.amp and self.device == "cuda":
-            self._scaler = torch.cuda.amp.GradScaler()
+        # Determine if AMP should be enabled
+        use_amp = self.precision != "no" or self.amp
+
+        if use_amp and self.device == "cuda":
+            self._scaler = torch.amp.GradScaler("cuda")
+        elif use_amp and self.device == "mps":
+            # MPS doesn't need a scaler but supports autocast
+            self._scaler = None
+
+    def _enable_gradient_checkpointing(self) -> None:
+        """Enable gradient checkpointing on the model for memory efficiency."""
+        model = self.task.model if hasattr(self.task, "model") else None
+        if model is None:
+            return
+
+        # Try different methods to enable gradient checkpointing
+        if hasattr(model, "gradient_checkpointing_enable"):
+            model.gradient_checkpointing_enable()
+            logger.info("Enabled gradient checkpointing (HuggingFace method)")
+        elif hasattr(model, "set_grad_checkpointing"):
+            model.set_grad_checkpointing(True)
+            logger.info("Enabled gradient checkpointing (timm method)")
+        else:
+            logger.warning("Model does not support gradient checkpointing")
 
     def _move_to_device(self) -> None:
         """Move task model and loss to device."""
@@ -219,6 +251,11 @@ class Trainer:
         # Setup phases
         self._setup_data()
         self._move_to_device()
+
+        # Enable gradient checkpointing if requested (before optimizer setup)
+        if self.gradient_checkpointing:
+            self._enable_gradient_checkpointing()
+
         self._setup_optimizer()
         self._setup_amp()
 
@@ -271,6 +308,25 @@ class Trainer:
 
         return self
 
+    def _get_autocast_context(self):
+        """Get the appropriate autocast context based on device and precision."""
+        if self.precision == "no" and not self.amp:
+            return torch.autocast(device_type="cpu", enabled=False)
+
+        # Determine dtype
+        if self.precision == "bf16":
+            dtype = torch.bfloat16
+        else:
+            dtype = torch.float16
+
+        # Get device type for autocast
+        device_type = self.device.split(":")[0] if ":" in self.device else self.device
+        if device_type == "mps":
+            # MPS autocast requires special handling
+            return torch.autocast(device_type="cpu", dtype=dtype, enabled=False)
+
+        return torch.autocast(device_type=device_type, dtype=dtype)
+
     def _train_epoch(self) -> dict[str, float]:
         """Run one training epoch."""
         self.task.model.train()
@@ -279,6 +335,7 @@ class Trainer:
 
         for batch_idx, batch in enumerate(self._train_loader):
             self.ctx.step = batch_idx
+            self._step += 1
 
             # Move batch to device
             batch = self._to_device(batch)
@@ -287,34 +344,47 @@ class Trainer:
             for cb in self.callbacks:
                 cb.on_train_batch_start(self, batch, batch_idx)
 
-            # Forward pass
-            self._optimizer.zero_grad()
+            # Forward pass with gradient accumulation
+            is_accumulating = (batch_idx + 1) % self.accumulation_steps != 0
 
             if self._scaler is not None:
-                with torch.cuda.amp.autocast():
+                with self._get_autocast_context():
                     loss = self.task.train_step(batch)
+                    # Scale loss for gradient accumulation
+                    loss = loss / self.accumulation_steps
+
                 self._scaler.scale(loss).backward()
 
-                if self.grad_clip is not None:
-                    self._scaler.unscale_(self._optimizer)
-                    nn.utils.clip_grad_norm_(self.task.parameters(), self.grad_clip)
+                if not is_accumulating:
+                    if self.grad_clip is not None:
+                        self._scaler.unscale_(self._optimizer)
+                        nn.utils.clip_grad_norm_(self.task.parameters(), self.grad_clip)
 
-                self._scaler.step(self._optimizer)
-                self._scaler.update()
+                    self._scaler.step(self._optimizer)
+                    self._scaler.update()
+                    self._optimizer.zero_grad()
+
+                    if self._scheduler is not None:
+                        self._scheduler.step()
             else:
-                loss = self.task.train_step(batch)
+                with self._get_autocast_context():
+                    loss = self.task.train_step(batch)
+                    loss = loss / self.accumulation_steps
+
                 loss.backward()
 
-                if self.grad_clip is not None:
-                    nn.utils.clip_grad_norm_(self.task.parameters(), self.grad_clip)
+                if not is_accumulating:
+                    if self.grad_clip is not None:
+                        nn.utils.clip_grad_norm_(self.task.parameters(), self.grad_clip)
 
-                self._optimizer.step()
+                    self._optimizer.step()
+                    self._optimizer.zero_grad()
 
-            if self._scheduler is not None:
-                self._scheduler.step()
+                    if self._scheduler is not None:
+                        self._scheduler.step()
 
-            # Track metrics
-            loss_val = loss.item()
+            # Track metrics (use unscaled loss for logging)
+            loss_val = loss.item() * self.accumulation_steps
             total_loss += loss_val
             num_batches += 1
 
@@ -350,11 +420,8 @@ class Trainer:
             for cb in self.callbacks:
                 cb.on_val_batch_start(self, batch, batch_idx)
 
-            # Forward pass
-            if self._scaler is not None:
-                with torch.cuda.amp.autocast():
-                    outputs = self.task.eval_step(batch)
-            else:
+            # Forward pass with autocast
+            with self._get_autocast_context():
                 outputs = self.task.eval_step(batch)
 
             # Accumulate outputs
@@ -473,3 +540,69 @@ class Trainer:
                 all_outputs[key].append(value.cpu())
 
         return {key: torch.cat(values) for key, values in all_outputs.items()}
+
+    def export(
+        self,
+        path: str,
+        format: str = "pytorch",
+        input_shape: tuple[int, ...] | None = None,
+    ) -> str:
+        """Export model for deployment.
+
+        Args:
+            path: Output path (extension auto-added if missing)
+            format: Export format ('pytorch', 'onnx', 'torchscript')
+            input_shape: Input shape for tracing (required for onnx/torchscript)
+
+        Returns:
+            Path to exported model
+        """
+        if not hasattr(self.task, "model"):
+            raise ValueError("Task has no model to export")
+
+        model = self.task.model
+        model.eval()
+
+        path = Path(path)
+
+        if format == "pytorch":
+            path = path.with_suffix(".pt")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(model.state_dict(), path)
+            logger.info(f"Exported PyTorch state_dict to {path}")
+
+        elif format == "onnx":
+            if input_shape is None:
+                raise ValueError("input_shape required for ONNX export")
+
+            path = path.with_suffix(".onnx")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            dummy_input = torch.randn(1, *input_shape, device=next(model.parameters()).device)
+
+            torch.onnx.export(
+                model,
+                dummy_input,
+                str(path),
+                input_names=["input"],
+                output_names=["output"],
+                dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
+                opset_version=17,
+            )
+            logger.info(f"Exported ONNX model to {path}")
+
+        elif format == "torchscript":
+            if input_shape is None:
+                raise ValueError("input_shape required for TorchScript export")
+
+            path = path.with_suffix(".pt")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            dummy_input = torch.randn(1, *input_shape, device=next(model.parameters()).device)
+
+            traced = torch.jit.trace(model, dummy_input)
+            traced.save(str(path))
+            logger.info(f"Exported TorchScript model to {path}")
+
+        else:
+            raise ValueError(f"Unknown format: {format}. Use 'pytorch', 'onnx', or 'torchscript'")
+
+        return str(path)

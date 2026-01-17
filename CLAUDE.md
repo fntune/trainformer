@@ -4,60 +4,85 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-This is a monorepo containing:
-
-1. **trainformer** (planned) - Python-first training library for deep learning. See `PLAN.md` for full design spec.
-2. **product-matching/** - Production metric learning pipeline with ArcFace (Hydra + custom training loop)
+Monorepo with:
+1. **trainformer/** (v0.1.0) - Python-first training library for deep learning
+2. **product-matching/** - Production metric learning pipeline (Hydra + ArcFace)
 3. **SSL/** - Self-supervised learning pipeline (PyTorch Lightning, git submodule)
 
 ## Commands
 
-### Product Matching
 ```bash
-cd product-matching
-pip install -r requirements.txt
+# Install
+pip install -e .                                 # editable install
+pip install -e ".[dev]"                          # with test/lint deps
+
+# Test
+pytest tests/                                    # all tests
+pytest tests/test_trainer.py -v                  # single file
+pytest tests/test_trainer.py::test_fit -v        # single test
+pytest tests/ -m "not slow"                      # skip slow tests
+
+# Lint
+ruff check trainformer/                          # lint
+ruff format trainformer/                         # format
+
+# CLI
+trainformer train --task=ImageClassification --model=resnet50 --data=data/train
+trainformer train --task=MetricLearning --model=efficientnet_b0 --data=data/sop
+trainformer train --task=SSL.simclr --model=resnet50 --data=data/imagenet
+trainformer predict --checkpoint=model.pth --data=data/test --task=ImageClassification
+
+# Product Matching
+cd product-matching && pip install -r requirements.txt
 python run.py                                    # train with default config
 python run.py dataloader=local model.backbone.model_name=efficientnet_b3
 python run.py -m data.batch_size=16,32,64        # multirun sweep
 ```
 
-### Hydra Patterns
-- Override: `key=value` (no `--` prefix)
-- Add new param: `+key=value`
-- Switch config group: `dataloader=colab` or `model=arcface`
-- Multirun: `-m key=val1,val2,val3`
+## Trainformer Architecture
 
-## Architecture
+```
+trainformer/
+├── trainer.py      → Universal loop (AMP, compile, callbacks, logging)
+├── types.py        → Task protocol, DatasetInfo, ConfigSource
+├── tasks/
+│   ├── vision/     → Classification, MetricLearning, SSL (SimCLR/MoCo/DINO/MAE)
+│   ├── nlp/        → CausalLM, Seq2Seq, MaskedLM
+│   └── multimodal/ → CLIP, VLM
+├── models/components/
+│   ├── backbones.py → TimmBackbone (timm wrapper)
+│   ├── losses.py    → ArcFace, CosFace, SubcenterArcFace, NTXent, InfoNCE
+│   ├── poolers.py   → GeM pooling
+│   └── heads.py     → Classification, projection heads
+├── callbacks/      → EarlyStopping, ModelCheckpoint, EMA, KNN
+├── adapters/       → LoRA
+├── data/           → Image, text loaders, samplers
+└── eval/           → FAISS feature index, retrieval metrics
+```
+
+### Core Patterns
+
+| Pattern | Description |
+|---------|-------------|
+| **Task Protocol** | `train_step(batch) → loss`, `eval_step(batch) → metrics`, `configure(DatasetInfo)` |
+| **DatasetInfo** | Single metadata object (num_classes, input_shape) flows through pipeline |
+| **ConfigSource** | Tracks value origin: USER, DATA, DERIVED, ENV |
+| **TaskBase** | Lifecycle hooks: `on_train_begin()`, `on_epoch_end()`, `on_step_end()` |
 
 ### Product Matching (`product-matching/`)
+
 ```
-run.py              → Entry point, fold splitting, calls train()
+run.py              → Entry point, fold splitting
 src/train.py        → Custom training loop with AMP, FAISS eval
 src/models/dolg.py  → Model definition
 src/models/components/
-  ├── backbones.py    → TimmBackbone wrapper (timm models)
+  ├── backbones.py    → TimmBackbone wrapper
   ├── loss_heads.py   → ArcFace, SubcenterArcFace
   └── pooler_heads.py → GeM pooling
-src/testing.py      → sweep_matching, compute_scores (F1 optimization)
-conf/               → Hydra configs (model/, loss/, transforms/, etc.)
+conf/               → Hydra configs
 ```
 
-### Key Patterns
-
-1. **Hydra Instantiation**: Models/transforms/losses instantiated via `hydra.utils.instantiate()` from config `_target_` paths
-
-2. **TimmBackbone**: Wrapper around timm models with `remove_fc=true`, used across all vision tasks
-
-3. **Metric Learning**: ArcFace loss with learnable weights in `loss_heads.py`, configured via `conf/loss/`
-
-4. **Evaluation**: FAISS-based nearest neighbor search with threshold sweeping for F1 optimization
-
-### Trainformer Design (see PLAN.md)
-
-The planned trainformer library follows these patterns:
-- **Task Protocol**: `train_step()`, `eval_step()`, `configure(DatasetInfo)`, `parameters()`
-- **Trainer**: Universal loop with phased initialization, callbacks, multi-backend logging
-- **PipelineContext**: Config source tracking (USER/DATA/DERIVED), lifecycle management (STEP/EPOCH/RUN)
+Hydra patterns: `key=value` (override), `+key=value` (add), `-m key=v1,v2` (multirun)
 
 ## Environment Variables
 ```

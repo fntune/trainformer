@@ -1,4 +1,9 @@
 """Data loading utilities."""
+from trainformer.data.datasets import (
+    ImageTextDataset,
+    JSONLDataset,
+    TextFileDataset,
+)
 from trainformer.data.image import (
     ImageDataset,
     ImageFolderDataset,
@@ -20,14 +25,17 @@ __all__ = [
     # Image
     "ImageDataset",
     "ImageFolderDataset",
+    "ImageTextDataset",
     "TensorDictDataset",
     "get_default_transforms",
     # Text
-    "TextDataset",
     "ChatDataset",
+    "JSONLDataset",
     "StreamingTextDataset",
+    "TextDataset",
+    "TextFileDataset",
     # Samplers
     "ClassBalancedSampler",
-    "PKSampler",
     "DistributedPKSampler",
+    "PKSampler",
 ]
