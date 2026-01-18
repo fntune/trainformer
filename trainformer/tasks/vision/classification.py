@@ -20,7 +20,7 @@ class ImageClassification:
         dropout: Dropout rate before classifier
     """
 
-    backbone: str = "efficientnet_b0"
+    backbone: str = "resnet50"
     num_classes: int | None = None
     pretrained: bool = True
     dropout: float = 0.0

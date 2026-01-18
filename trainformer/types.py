@@ -31,6 +31,28 @@ class DatasetInfo:
     input_shape: tuple[int, ...] | None = None
     class_counts: dict[str, int] | None = None
 
+    @property
+    def class_weights(self) -> Tensor | None:
+        """Inverse frequency weights for class-balanced loss.
+
+        Returns:
+            Tensor of shape (num_classes,) with weights, or None if class_counts unavailable
+        """
+        import torch
+
+        if self.class_counts is None or len(self.class_counts) == 0:
+            return None
+
+        # Get counts in order (sorted by class index/name)
+        counts = [self.class_counts[k] for k in sorted(self.class_counts.keys())]
+        total = sum(counts)
+
+        # Inverse frequency: total / (num_classes * count_per_class)
+        num_classes = len(counts)
+        weights = [total / (num_classes * c) if c > 0 else 0.0 for c in counts]
+
+        return torch.tensor(weights, dtype=torch.float32)
+
     @classmethod
     def from_dataset(cls, dataset: Dataset) -> "DatasetInfo":
         """Extract info from a dataset."""

@@ -286,6 +286,10 @@ class Trainer:
                 if self._val_loader is not None:
                     val_metrics = self._val_epoch()
 
+                    # Callbacks: validation end
+                    for cb in self.callbacks:
+                        cb.on_validation_end(self, val_metrics)
+
                 # Combine metrics
                 metrics = {**train_metrics, **val_metrics}
                 self._update_best_metrics(metrics)

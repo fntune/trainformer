@@ -53,6 +53,19 @@ class ConsoleLogger:
         pass
 
 
+class NoOpLogger:
+    """No-operation logger for when logging is disabled."""
+
+    def log(self, metrics: dict[str, float], step: int) -> None:
+        pass
+
+    def log_hyperparams(self, params: dict[str, Any]) -> None:
+        pass
+
+    def finish(self) -> None:
+        pass
+
+
 class MultiLogger:
     """Combines multiple loggers."""
 

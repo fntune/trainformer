@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --surface: #171717;
+  --border: #262626;
+  --muted: #a1a1aa;
+  --accent: #3b82f6;
+  --code-bg: #1e1e1e;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-code-bg: var(--code-bg);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+}
+
+/* Skip link for accessibility */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: var(--foreground);
+  z-index: 100;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Code block styles */
+pre {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Honor reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Typography improvements */
+h1, h2, h3, h4, h5, h6 {
+  text-wrap: balance;
+}
+
+/* Touch action for buttons */
+button, [role="button"] {
+  touch-action: manipulation;
+}
+
+/* Code block horizontal scroll */
+.code-block {
+  overflow-x: auto;
+}

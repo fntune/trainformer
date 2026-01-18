@@ -45,6 +45,10 @@ class Callback(Protocol):
         """Called after each validation batch."""
         ...
 
+    def on_validation_end(self, trainer: "Trainer", metrics: dict[str, float]) -> None:
+        """Called after validation epoch completes, before on_epoch_end."""
+        ...
+
 
 class CallbackBase:
     """Base class providing default no-op implementations."""
@@ -75,4 +79,7 @@ class CallbackBase:
     def on_val_batch_end(
         self, trainer: "Trainer", batch: Any, batch_idx: int, outputs: dict[str, Any]
     ) -> None:
+        pass
+
+    def on_validation_end(self, trainer: "Trainer", metrics: dict[str, float]) -> None:
         pass
