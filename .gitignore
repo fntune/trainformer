@@ -7,3 +7,11 @@ dist/
 build/
 .eggs/
 
+# Editor/tool state
+.claude/
+.cursor/
+
+# Data and checkpoints
+checkpoints/
+data/
+
